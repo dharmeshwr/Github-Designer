@@ -1,0 +1,29 @@
+.loading-cell {
+  position: relative;
+  overflow: hidden;
+}
+
+.loading-cell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+
+  background: linear-gradient(120deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.1) 50%,
+      transparent 70%);
+
+  background-size: 200% 100%;
+
+  animation: shine-sweep 1.8s infinite ease-out;
+}
+
+@keyframes shine-sweep {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
