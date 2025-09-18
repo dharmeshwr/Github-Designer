@@ -7,6 +7,9 @@ export interface IUser extends Document {
   email?: string | null;
   encryptedToken: string;
   sessionId?: string | null;
+  repoName?: string | null;
+  repoUrl?: string | null;
+  lastLoginAt?: Date | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -19,6 +22,9 @@ const UserSchema = new Schema<IUser>(
     email: { type: String },
     encryptedToken: { type: String, required: true },
     sessionId: { type: String, index: true, sparse: true },
+    repoName: { type: String, default: null },
+    repoUrl: { type: String, default: null },
+    lastLoginAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

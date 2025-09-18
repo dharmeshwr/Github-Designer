@@ -92,7 +92,7 @@ export async function GET(request: Request) {
 
     const flatCalender = calendar.weeks.flatMap((week: any) =>
       week.contributionDays.map((day: any) => ({
-        date: day.date,
+        date: new Date(day.date),
         count: day.contributionCount,
       }))
     );

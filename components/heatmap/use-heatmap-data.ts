@@ -1,5 +1,5 @@
 "use client"
-import { useState, useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import {
   subDays,
   startOfWeek,
@@ -8,37 +8,11 @@ import {
   endOfYear,
 } from "date-fns";
 
-interface ContributionDay {
-  date: string;
-  count: number;
-}
-
-interface ProcessedContributionDay {
-  date: Date;
-  count: number;
-}
-
-interface UseHeatmapDataProps {
-  data: ContributionDay[];
-  selectedYear: number | null;
-}
-
-interface UseHeatmapDataReturn {
-  contributions: ProcessedContributionDay[];
-  startDate: Date;
-  weeks: number;
-  viewType: "rolling" | "calendar";
-  today: Date;
-  getColor: (count: number, colors: string[]) => string;
-}
-
 export const useHeatmapData = ({
-  data,
   selectedYear
-}: UseHeatmapDataProps): UseHeatmapDataReturn => {
-  const [contributions, setContributions] = useState<ProcessedContributionDay[]>([]);
-
-  // Memoize today to prevent unnecessary re-renders
+}: {
+  selectedYear: number | null;
+}) => {
   const today = useMemo(() => new Date(), []);
 
   const { startDate, weeks, viewType } = useMemo(() => {
@@ -63,14 +37,6 @@ export const useHeatmapData = ({
     }
   }, [selectedYear, today]);
 
-  useEffect(() => {
-    const processedData = data.map((item) => ({
-      date: new Date(item.date),
-      count: item.count,
-    }));
-    setContributions(processedData);
-  }, [data]);
-
   const getColor = useMemo(() => {
     return (count: number, colors: string[]) => {
       if (count <= 0) return colors[0];
@@ -82,7 +48,6 @@ export const useHeatmapData = ({
   }, []);
 
   return {
-    contributions,
     startDate,
     weeks,
     viewType,

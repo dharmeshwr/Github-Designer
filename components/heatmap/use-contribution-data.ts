@@ -1,38 +1,59 @@
 'use client'
 import { useState, useEffect, useRef } from "react";
 
-interface ContributionDay {
+interface Contribution {
   date: string;
   count: number;
 }
 
-const fallbackData: ContributionDay[] = [
-  { date: "2025-10-13", count: 3 },
-  { date: "2025-05-12", count: 1 },
-  { date: "2025-09-11", count: 2 },
-  { date: "2025-09-10", count: 5 },
-  { date: "2024-09-13", count: 2 },
-  { date: "2024-09-15", count: 0 },
-  { date: "2024-09-20", count: 4 },
-  { date: "2024-10-01", count: 1 },
-  { date: "2024-10-05", count: 3 },
-  { date: "2024-10-10", count: 0 },
-];
+interface ContributionData {
+  calendar: Contribution[];
+  totalContributions: number;
+  year: string;
+  from: string;
+  to: string;
+}
+
+const fallbackData: ContributionData = {
+  calendar: [
+    { date: "2025-10-13", count: 3 },
+    { date: "2025-05-12", count: 1 },
+    { date: "2025-09-11", count: 2 },
+    { date: "2025-09-10", count: 5 },
+    { date: "2024-09-13", count: 2 },
+    { date: "2024-09-15", count: 0 },
+    { date: "2024-09-20", count: 4 },
+    { date: "2024-10-01", count: 1 },
+    { date: "2024-10-05", count: 3 },
+    { date: "2024-10-10", count: 0 },
+  ],
+  totalContributions: 21,
+  year: "2024",
+  from: "",
+  to: ""
+};
+
+const initialState: ContributionData = {
+  calendar: [],
+  totalContributions: 0,
+  year: '',
+  from: '',
+  to: ''
+};
+
 
 export const useContributionData = (selectedPeriod: string) => {
-  const [data, setData] = useState<ContributionDay[]>([]);
+  const [data, setData] = useState<ContributionData>(initialState);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const currentPeriodRef = useRef<string>(selectedPeriod);
 
   useEffect(() => {
-    // Abort previous request if it exists
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
 
-    // Create new abort controller
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
     currentPeriodRef.current = selectedPeriod;
@@ -42,27 +63,22 @@ export const useContributionData = (selectedPeriod: string) => {
       setError(null);
 
       try {
-        console.time(`Fetching contributions for ${selectedPeriod}`);
-
         const res = await fetch(`/api/user/contributions/?year=${selectedPeriod}`, {
           method: "GET",
           credentials: "include",
           signal
         });
 
-        console.timeEnd(`Fetching contributions for ${selectedPeriod}`);
-
         if (signal.aborted) {
           return;
         }
 
         if (res.ok) {
-          const json = await res.json();
-          const calendar = json.calendar;
+          const json: ContributionData = await res.json();
 
-          if (calendar) {
+          if (json && json.calendar) {
             if (currentPeriodRef.current === selectedPeriod && !signal.aborted) {
-              setData(calendar);
+              setData(json);
             }
           } else {
             console.warn("API response missing calendar data, using fallback.");
@@ -78,7 +94,6 @@ export const useContributionData = (selectedPeriod: string) => {
           }
         }
       } catch (err) {
-        // Don't set error if request was aborted
         if (!signal.aborted) {
           console.error("Error fetching contributions:", err);
           setError(err instanceof Error ? err.message : "An unknown error occurred");
@@ -87,7 +102,6 @@ export const useContributionData = (selectedPeriod: string) => {
           }
         }
       } finally {
-        // Only set loading to false if this is still the current request
         if (currentPeriodRef.current === selectedPeriod && !signal.aborted) {
           setIsLoading(false);
         }
@@ -96,7 +110,6 @@ export const useContributionData = (selectedPeriod: string) => {
 
     fetchContributions();
 
-    // Cleanup function
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -104,5 +117,5 @@ export const useContributionData = (selectedPeriod: string) => {
     };
   }, [selectedPeriod]);
 
-  return { contributionsData: data, isLoading, error };
+  return { contributions: data, isLoading, error };
 };

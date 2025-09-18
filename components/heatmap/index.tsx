@@ -1,184 +1,94 @@
+// ./index.tsx
 'use client'
-
-import "./index.css"
-import { useRef, useMemo } from "react";
-import {
-  format,
-  addDays,
-  startOfWeek,
-  endOfWeek,
-  eachDayOfInterval,
-  isSameDay,
-  isAfter,
-  differenceInDays,
-} from "date-fns";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import "./index.css";
+import React, { useRef, useState, useMemo, useCallback, useEffect } from "react";
+import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, differenceInDays } from "date-fns";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTheme } from "next-themes";
 import { useHeatmapData } from "./use-heatmap-data";
 import { useHorizantalScroll } from "@/hooks/use-horizantal-scroll";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useContributionData } from "./use-contribution-data";
-
-const themeColors = {
-  light: {
-    background: "#ffffff",
-    levels: ["#f0f1f5", "#adecbc", "#4cc06b", "#2da44e", "#126328"],
-  },
-  dark: {
-    background: "#0d1017",
-    levels: ["#131b23", "#033c16", "#196c2d", "#2ea041", "#58d165"],
-  },
-};
-
-const SCALE_FACTOR = 1.4;
-const BASE_CELL_SIZE = 0.75;
-const BASE_CELL_GAP = 0.25;
-const BASE_WEEK_WIDTH = BASE_CELL_SIZE + BASE_CELL_GAP;
+import { themeColors, dayLabels, getScaledValues } from "./config";
+import { useScale } from "@/contexts/scale-context";
+import HeatmapGrid from "./grid";
+import EditControls from "./edit-controls";
+// --- NEW: Import toast from sonner ---
+import { toast } from "sonner";
 
 const Heatmap = () => {
-  const heatmapContainer = useRef(null);
-  const { resolvedTheme } = useTheme();
+  const heatmapContainer = useRef<HTMLDivElement | null>(null);
   useHorizantalScroll(heatmapContainer);
-  const [selectedPeriod, setSelectedPeriod] = useLocalStorage<string>(
-    "heatmap_period",
-    "rolling"
+
+  const { resolvedTheme } = useTheme();
+  const [selectedPeriod, setSelectedPeriod] = useLocalStorage<string>("heatmap_period", "rolling");
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [selectedBrushValue, setSelectedBrushValue] = useState<number | null>(0);
+  // --- NEW STATE for loading indicator ---
+  const [isApplying, setIsApplying] = useState(false);
+
+  const { contributions, isLoading } = useContributionData(selectedPeriod);
+
+  const transformedContributions = useMemo(() => {
+    return contributions?.calendar?.map(contribution => ({
+      ...contribution,
+      date: new Date(contribution.date),
+    })) ?? [];
+  }, [contributions]);
+
+  const contribMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of transformedContributions ?? []) {
+      m.set(format(c.date, "yyyy-MM-dd"), c.count ?? 0);
+    }
+    return m;
+  }, [transformedContributions]);
+
+  const [editedContributions, setEditedContributions] = useLocalStorage<Record<string, number>>(
+    `heatmap_edits_${selectedPeriod}`,
+    {}
   );
-  const selectedYear =
-    selectedPeriod === "rolling" ? null : parseInt(selectedPeriod);
 
-  const { contributionsData, isLoading } = useContributionData(selectedPeriod);
+  const [hoveredCellKey, setHoveredCellKey] = useState<string | null>(null);
+  const selectedBrushRef = useRef<number | null>(null);
+  selectedBrushRef.current = selectedBrushValue;
 
-  const {
-    contributions,
-    startDate,
-    weeks,
-    viewType,
-    today,
-    getColor,
-  } = useHeatmapData({ data: contributionsData, selectedYear });
+  const selectedYear = selectedPeriod === "rolling" ? null : parseInt(selectedPeriod);
+  const { startDate, weeks, viewType, today, getColor } = useHeatmapData({ selectedYear });
 
   const effectiveTheme = (resolvedTheme || "light") as "light" | "dark";
   const colors = themeColors[effectiveTheme].levels;
   const heatmapBg = themeColors[effectiveTheme].background;
 
-  const scaledCellSize = BASE_CELL_SIZE * SCALE_FACTOR;
-  const scaledGap = BASE_CELL_GAP * SCALE_FACTOR;
-  const scaledWeekWidth = BASE_WEEK_WIDTH * SCALE_FACTOR;
-  const scaledFontSize = (0.75 * SCALE_FACTOR) / 1.1;
-  const scaledLabelHeight = scaledCellSize;
-  const scaledLabelWidth = 1.5 * SCALE_FACTOR;
+  const { scaleFactor } = useScale();
+  const { scaledCellSize, scaledGap, scaledWeekWidth } = getScaledValues(scaleFactor);
 
-  const handleYearChange = (value: string) => {
-    setSelectedPeriod(value);
-  };
-
-  // Memoize the calculation of week elements to prevent re-running on every render
-  const memoizedWeeks = useMemo(() => {
-    const weeksArray = [];
+  const weeksArray = useMemo(() => {
+    const array: Date[][] = [];
     let currentWeekStart = startOfWeek(startDate, { weekStartsOn: 0 });
-
     for (let i = 0; i < weeks; i++) {
       const weekDays = eachDayOfInterval({
         start: currentWeekStart,
         end: endOfWeek(currentWeekStart, { weekStartsOn: 0 }),
       });
-
-      weeksArray.push(
-        <div
-          key={i}
-          className="flex flex-col flex-shrink-0"
-          style={{ gap: `${scaledGap}rem` }}
-        >
-          {weekDays.map((day, index) => {
-            if (
-              (viewType === "rolling" && isAfter(day, today)) ||
-              (viewType !== "rolling" &&
-                selectedYear &&
-                day.getFullYear() !== selectedYear)
-            ) {
-              return (
-                <div
-                  key={index}
-                  style={{
-                    width: `${scaledCellSize}rem`,
-                    height: `${scaledCellSize}rem`,
-                  }}
-                />
-              );
-            }
-
-            if (isLoading) {
-              return (
-                <div
-                  key={index}
-                  className="loading-cell rounded-xs"
-                  style={{
-                    backgroundColor: colors[0],
-                    width: `${scaledCellSize}rem`,
-                    height: `${scaledCellSize}rem`,
-                  }}
-                />
-              );
-            }
-
-            const contribution = contributions.find((c) => isSameDay(c.date, day));
-            const count = contribution?.count || 0;
-            const isFutureDate = isAfter(day, today);
-
-            let color = colors[0];
-            let title = `No contributions on ${format(day, "PPP")}`;
-
-            if (viewType === 'rolling' || !isFutureDate) {
-              color = getColor(count, colors);
-              title = `${count} contributions on ${format(day, "PPP")}`;
-            }
-
-            return (
-              <div
-                key={index}
-                className="rounded-xs"
-                style={{
-                  backgroundColor: color,
-                  width: `${scaledCellSize}rem`,
-                  height: `${scaledCellSize}rem`,
-                }}
-                title={title}
-              />
-            );
-          })}
-        </div>
-      );
+      array.push(weekDays);
       currentWeekStart = addDays(currentWeekStart, 7);
     }
-    return weeksArray;
-  }, [weeks, startDate, viewType, today, selectedYear, isLoading, contributions, colors, scaledCellSize, scaledGap, getColor]);
+    return array;
+  }, [startDate, weeks]);
 
-  // Memoize the calculation of month labels
-  const memoizedMonthLabels = useMemo(() => {
-    const labels = [];
-    let lastMonth = -1;
+  const monthLabels = useMemo(() => {
+    const labels: React.ReactNode[] = [];
     const gridStartDate = startOfWeek(startDate, { weekStartsOn: 0 });
-
     if (viewType === 'rolling') {
+      let lastMonth = -1;
       let currentRollingDate = gridStartDate;
       for (let i = 0; i < weeks; i++) {
         const month = currentRollingDate.getMonth();
         if (month !== lastMonth) {
           labels.push(
-            <span
-              key={i}
-              className="absolute"
-              style={{
-                left: `${i * scaledWeekWidth}rem`,
-                fontSize: `${scaledFontSize}rem`
-              }}
-            >
+            <span key={i} className="absolute" style={{ left: `${i * scaledWeekWidth}rem` }}>
               {format(currentRollingDate, "MMM")}
             </span>
           );
@@ -188,125 +98,246 @@ const Heatmap = () => {
       }
       return labels;
     }
-
     for (let monthIndex = 0; monthIndex < 12; monthIndex++) {
       const firstDayOfMonth = new Date(selectedYear!, monthIndex, 1);
       const diffInDays = differenceInDays(firstDayOfMonth, gridStartDate);
       const weekIndex = Math.floor(diffInDays / 7);
-
       if (weekIndex >= 0 && weekIndex < weeks) {
         labels.push(
-          <span
-            key={monthIndex}
-            className="absolute"
-            style={{
-              left: `${weekIndex * scaledWeekWidth}rem`,
-              fontSize: `${scaledFontSize}rem`
-            }}
-          >
+          <span key={monthIndex} className="absolute" style={{ left: `${weekIndex * scaledWeekWidth}rem` }}>
             {format(firstDayOfMonth, "MMM")}
           </span>
         );
       }
     }
     return labels;
-  }, [startDate, weeks, viewType, selectedYear, scaledWeekWidth, scaledFontSize]);
+  }, [startDate, weeks, viewType, selectedYear, scaledWeekWidth]);
 
-  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const toggleEditMode = useCallback(() => {
+    setIsEditing(prev => {
+      const newIsEditing = !prev;
+      if (newIsEditing && Object.keys(editedContributions).length === 0) {
+        const initialEdits: Record<string, number> = {};
+        transformedContributions.forEach(c => {
+          initialEdits[format(c.date, "yyyy-MM-dd")] = c.count;
+        });
+        setEditedContributions(initialEdits);
+      }
+      return newIsEditing;
+    });
+  }, [editedContributions, transformedContributions, setEditedContributions]);
+
+  const handleClearEdits = useCallback(() => {
+    if (window.confirm("Are you sure you want to clear all your pending edits?")) {
+      const initialEdits: Record<string, number> = {};
+      transformedContributions.forEach(c => {
+        initialEdits[format(c.date, "yyyy-MM-dd")] = c.count;
+      });
+      setEditedContributions(initialEdits);
+    }
+  }, [setEditedContributions, transformedContributions]);
+
+  // --- MODIFIED: Added loading state and toast notifications ---
+  const handleApplyChanges = async () => {
+    const changesToSend: { date: string; count: number }[] = [];
+    Object.entries(editedContributions).forEach(([date, newCount]) => {
+      const originalCount = contribMap.get(date) ?? 0;
+      if (newCount !== originalCount) {
+        changesToSend.push({ date, count: newCount });
+      }
+    });
+
+    if (changesToSend.length === 0) {
+      toast.info("No changes to apply.");
+      return;
+    }
+
+    setIsApplying(true);
+    const toastId = toast.loading("Applying your changes...");
+
+    try {
+      console.log("Submitting to /api/user/contributions/update:", changesToSend);
+      // Simulate API call with a delay
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const response = await fetch('/api/user/contributions/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(changesToSend),
+      });
+
+      if (response.ok) {
+        toast.success("Changes applied successfully!", { id: toastId });
+        setEditedContributions({});
+        // Consider re-fetching data here for the latest state
+      } else {
+        toast.error(`Error: ${response.statusText || 'Failed to apply changes'}`, { id: toastId });
+      }
+    } catch (error) {
+      console.error("Failed to apply changes:", error);
+      toast.error("An error occurred while applying changes.", { id: toastId });
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  useEffect(() => {
+    const container = heatmapContainer.current;
+    if (!container || !isEditing) return;
+
+    const getTargetInfo = (ev: MouseEvent) => {
+      const target = (ev.target as Element).closest?.('.heatmap-cell') as HTMLElement | null;
+      if (!target || selectedBrushRef.current === null) return null;
+
+      const dateKey = target.dataset.date!;
+      const originalCount = contribMap.get(dateKey) ?? 0;
+      const currentEditedCount = editedContributions[dateKey];
+      const countBeforeClick = currentEditedCount !== undefined ? currentEditedCount : originalCount;
+
+      return { dateKey, countBeforeClick };
+    };
+
+    const handleLeftClick = (ev: MouseEvent) => {
+      const info = getTargetInfo(ev);
+      if (!info) return;
+      const newCount = info.countBeforeClick + selectedBrushRef.current!;
+      setEditedContributions(prev => ({ ...prev, [info.dateKey]: newCount }));
+    };
+
+    const handleRightClick = (ev: MouseEvent) => {
+      ev.preventDefault();
+      const info = getTargetInfo(ev);
+      if (!info) return;
+      const newCount = Math.max(0, info.countBeforeClick - selectedBrushRef.current!);
+      setEditedContributions(prev => ({ ...prev, [info.dateKey]: newCount }));
+    };
+
+    container.addEventListener('click', handleLeftClick);
+    container.addEventListener('contextmenu', handleRightClick);
+
+    return () => {
+      container.removeEventListener('click', handleLeftClick);
+      container.removeEventListener('contextmenu', handleRightClick);
+    };
+  }, [isEditing, editedContributions, contribMap, setEditedContributions]);
+
+  useEffect(() => {
+    const container = heatmapContainer.current;
+    if (!container || !isEditing) {
+      if (hoveredCellKey) setHoveredCellKey(null);
+      return;
+    }
+    const handleMouseMove = (ev: MouseEvent) => {
+      const target = (ev.target as Element).closest?.('.heatmap-cell') as HTMLElement | null;
+      if (target) {
+        const dateKey = target.dataset.date!;
+        if (dateKey !== hoveredCellKey) setHoveredCellKey(dateKey);
+      } else {
+        if (hoveredCellKey) setHoveredCellKey(null);
+      }
+    };
+    const handleMouseLeave = () => setHoveredCellKey(null);
+
+    container.addEventListener('mousemove', handleMouseMove);
+    container.addEventListener('mouseleave', handleMouseLeave);
+    return () => {
+      container.removeEventListener('mousemove', handleMouseMove);
+      container.removeEventListener('mouseleave', handleMouseLeave);
+    };
+  }, [isEditing, hoveredCellKey]);
+
+  useEffect(() => {
+    const container = heatmapContainer.current;
+    if (!container) return;
+    if (isEditing) container.classList.add('heatmap-editing');
+    else container.classList.remove('heatmap-editing');
+  }, [isEditing]);
 
   return (
-    <div className="w-full flex justify-center min-w-[300px]">
-      <div
-        className="p-4 border rounded-lg w-fit max-w-full"
-        style={{ backgroundColor: heatmapBg }}
-      >
-        <div className="flex justify-end mb-4">
-          <Select value={selectedPeriod} onValueChange={handleYearChange}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Select period" />
-            </SelectTrigger>
+    <div className="w-full flex flex-col items-center justify-center min-w-[300px] font-sans">
+      <div className="p-4 border rounded-lg w-fit max-w-full" style={{ backgroundColor: heatmapBg }}>
+        {/* ... Rest of the JSX is unchanged ... */}
+        <div className="flex justify-between items-center mb-4">
+          <div className="text-gray-300">
+            {isLoading ? (
+              <span>Fetching contributions...</span>
+            ) : (
+              <span className="font-semibold">
+                {contributions?.totalContributions || 0} contributions
+                {selectedPeriod === 'rolling' ? ' in the last year' : ` in ${selectedPeriod}`}
+              </span>
+            )}
+          </div>
+          <Select value={selectedPeriod} onValueChange={(value: string) => {
+            const hasUnappliedEdits = Object.entries(editedContributions).some(([date, count]) => (contribMap.get(date) ?? 0) !== count);
+            if (hasUnappliedEdits && !window.confirm("You have unapplied edits. Switching periods will discard them. Are you sure?")) {
+              return;
+            }
+            setEditedContributions({});
+            setSelectedPeriod(value);
+          }}>
+            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Select period" /></SelectTrigger>
             <SelectContent className="h-[250px]" style={{ backgroundColor: heatmapBg }}>
               <SelectItem value="rolling">Last 12 months</SelectItem>
               {Array.from({ length: today.getFullYear() - 1999 }, (_, i) => {
                 const year = today.getFullYear() - i;
-                return (
-                  <SelectItem key={year} value={year.toString()}>
-                    {year}
-                  </SelectItem>
-                );
+                return (<SelectItem key={year} value={year.toString()}>{year}</SelectItem>);
               })}
             </SelectContent>
           </Select>
         </div>
-
         <div className="w-full overflow-x-auto" ref={heatmapContainer}>
           <div className="inline-block">
-            <div
-              className="flex"
-              style={{ gap: `${scaledGap}rem` }}
-            >
-              <div
-                className="flex flex-col flex-shrink-0"
-                style={{
-                  gap: `${scaledGap}rem`,
-                  marginRight: `${scaledGap}rem`,
-                  paddingTop: `${1.25 * SCALE_FACTOR}rem`
-                }}
-              >
+            <div className="flex" style={{ gap: `${scaledGap}rem` }}>
+              <div className="flex flex-col flex-shrink-0" style={{ gap: `${scaledGap}rem`, paddingTop: `${1.25 * scaleFactor}rem` }}>
                 {dayLabels.map((day, index) => (
-                  <span
-                    key={index}
-                    className="flex items-center"
-                    style={{
-                      fontSize: `${scaledFontSize}rem`,
-                      width: `${scaledLabelWidth}rem`,
-                      height: `${scaledLabelHeight}rem`
-                    }}
-                  >
+                  <span key={index} className="flex items-center" style={{ width: `3rem`, height: `${scaledCellSize}rem` }}>
                     {index % 2 !== 0 ? day : ""}
                   </span>
                 ))}
               </div>
-
               <div className="relative">
-                <div style={{ height: `${1.25 * SCALE_FACTOR}rem` }}>
-                  {/* Use the memoized value */}
-                  {memoizedMonthLabels}
-                </div>
-                <div
-                  className="flex"
-                  style={{ gap: `${scaledGap}rem` }}
-                >
-                  {/* Use the memoized value */}
-                  {memoizedWeeks}
-                </div>
+                <div style={{ height: `${1.25 * scaleFactor}rem` }}>{monthLabels}</div>
+                <HeatmapGrid
+                  weeksArray={weeksArray}
+                  contributionsCalendar={transformedContributions}
+                  editedContributions={editedContributions}
+                  isLoading={isLoading}
+                  getColor={getColor}
+                  colors={colors}
+                  scaledCellSize={scaledCellSize}
+                  scaledGap={scaledGap}
+                  today={today}
+                  viewType={viewType}
+                  selectedYear={selectedYear}
+                  hoveredCellKey={hoveredCellKey}
+                  brushValue={selectedBrushValue}
+                />
               </div>
             </div>
           </div>
         </div>
-
-        <div
-          className="mt-4 justify-end flex items-center text-gray-500"
-          style={{
-            gap: `${scaledGap}rem`,
-            fontSize: `${scaledFontSize}rem`
-          }}
-        >
+        <div className="mt-4 justify-end flex items-center text-gray-500 gap-1">
           <span>Less</span>
           {colors.map((color, index) => (
-            <div
-              key={index}
-              className="rounded-xs"
-              style={{
-                backgroundColor: color,
-                width: `${scaledCellSize}rem`,
-                height: `${scaledCellSize}rem`
-              }}
-            />
+            <div key={index} className="rounded-xs size-4" style={{ backgroundColor: color }} />
           ))}
           <span>More</span>
         </div>
       </div>
+      <EditControls
+        isEditing={isEditing}
+        toggleEditMode={toggleEditMode}
+        selectedBrushValue={selectedBrushValue}
+        setSelectedBrushValue={setSelectedBrushValue}
+        getColor={getColor}
+        colors={colors}
+        heatmapBg={heatmapBg}
+        onApply={handleApplyChanges}
+        onClear={handleClearEdits}
+        hasEdits={Object.entries(editedContributions).some(([date, count]) => (contribMap.get(date) ?? 0) !== count)}
+        // --- PASS NEW PROP ---
+        isApplying={isApplying}
+      />
     </div>
   );
 };
