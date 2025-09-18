@@ -5,7 +5,6 @@ import { connectDB } from "@/lib/db";
 import User from "@/models/User";
 import { decryptToken } from "@/lib/crypto";
 import { Octokit } from "@octokit/rest";
-import { ReadableStream } from 'stream/web';
 
 type Patch = { date: string; count: number };
 
@@ -43,8 +42,8 @@ function validatePayload(body: any): Patch[] | null {
 export async function POST(request: Request) {
   const encoder = new TextEncoder();
 
-  const stream = new ReadableStream({
-    async start(controller) {
+  const stream = new (globalThis as any).ReadableStream({
+    async start(controller: any) {
       function send(message: any) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(message)}\n\n`));
       }
@@ -244,7 +243,7 @@ export async function POST(request: Request) {
     },
   });
 
-  return new Response(stream, {
+  return new Response(stream as unknown as BodyInit, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',

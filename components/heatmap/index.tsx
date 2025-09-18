@@ -42,7 +42,7 @@ const Heatmap = () => {
     return m;
   }, [transformedContributions]);
 
-  const [editedContributions, setEditedContributions] = useState(({}))
+  const [editedContributions, setEditedContributions] = useState<Record<string, number>>({});
   const [hoveredCellKey, setHoveredCellKey] = useState<string | null>(null);
   const selectedBrushRef = useRef<number | null>(null);
   selectedBrushRef.current = selectedBrushValue;
