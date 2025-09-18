@@ -1,4 +1,3 @@
-// ./index.tsx
 'use client'
 import "./index.css";
 import React, { useRef, useState, useMemo, useCallback, useEffect } from "react";
@@ -13,7 +12,6 @@ import { themeColors, dayLabels, getScaledValues } from "./config";
 import { useScale } from "@/contexts/scale-context";
 import HeatmapGrid from "./grid";
 import EditControls from "./edit-controls";
-// --- NEW: Import toast from sonner ---
 import { toast } from "sonner";
 
 const Heatmap = () => {
@@ -25,7 +23,6 @@ const Heatmap = () => {
 
   const [isEditing, setIsEditing] = useState(false);
   const [selectedBrushValue, setSelectedBrushValue] = useState<number | null>(0);
-  // --- NEW STATE for loading indicator ---
   const [isApplying, setIsApplying] = useState(false);
 
   const { contributions, isLoading } = useContributionData(selectedPeriod);
@@ -45,11 +42,7 @@ const Heatmap = () => {
     return m;
   }, [transformedContributions]);
 
-  const [editedContributions, setEditedContributions] = useLocalStorage<Record<string, number>>(
-    `heatmap_edits_${selectedPeriod}`,
-    {}
-  );
-
+  const [editedContributions, setEditedContributions] = useState(({}))
   const [hoveredCellKey, setHoveredCellKey] = useState<string | null>(null);
   const selectedBrushRef = useRef<number | null>(null);
   selectedBrushRef.current = selectedBrushValue;
@@ -137,7 +130,7 @@ const Heatmap = () => {
     }
   }, [setEditedContributions, transformedContributions]);
 
-  // --- MODIFIED: Added loading state and toast notifications ---
+  // --- MODIFIED: Use streaming fetch for SSE ---
   const handleApplyChanges = async () => {
     const changesToSend: { date: string; count: number }[] = [];
     Object.entries(editedContributions).forEach(([date, newCount]) => {
@@ -156,25 +149,64 @@ const Heatmap = () => {
     const toastId = toast.loading("Applying your changes...");
 
     try {
-      console.log("Submitting to /api/user/contributions/update:", changesToSend);
-      // Simulate API call with a delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
       const response = await fetch('/api/user/contributions/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(changesToSend),
       });
 
-      if (response.ok) {
-        toast.success("Changes applied successfully!", { id: toastId });
-        setEditedContributions({});
-        // Consider re-fetching data here for the latest state
-      } else {
-        toast.error(`Error: ${response.statusText || 'Failed to apply changes'}`, { id: toastId });
+      if (!response.ok) {
+        throw new Error(response.statusText || `HTTP error ${response.status}`);
+      }
+
+      if (!response.body) {
+        throw new Error("No response body");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let totalRequested = changesToSend.reduce((sum, c) => sum + c.count, 0);
+      let totalCreated = 0;
+      let done = false;
+
+      while (!done) {
+        const { done: readDone, value } = await reader.read();
+        done = readDone;
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+
+        let events = buffer.split('\n\n');
+        buffer = events.pop() || ''; // Last incomplete event stays in buffer
+
+        for (const event of events) {
+          const lines = event.split('\n');
+          let dataLines = lines.filter(line => line.startsWith('data: ')).map(line => line.slice(6));
+          if (dataLines.length > 0) {
+            let dataStr = dataLines.join('\n');
+            try {
+              const msg = JSON.parse(dataStr);
+              if (msg.type === 'commit_created') {
+                totalCreated++;
+                toast.loading(`Applied ${totalCreated}/${totalRequested} commits...`, { id: toastId });
+              } else if (msg.type === 'done') {
+                toast.success("Changes applied successfully!", { id: toastId });
+                setEditedContributions({});
+                // Optionally handle repo info: msg.repo.url
+              } else if (msg.type === 'error') {
+                throw new Error(msg.error);
+              }
+              // Ignore other types or handle as needed
+            } catch (parseErr) {
+              console.error("Failed to parse SSE data:", parseErr);
+            }
+          }
+        }
       }
     } catch (error) {
       console.error("Failed to apply changes:", error);
-      toast.error("An error occurred while applying changes.", { id: toastId });
+      toast.error(`Error: ${(error as Error).message || 'Failed to apply changes'}`, { id: toastId });
     } finally {
       setIsApplying(false);
     }
