@@ -4,6 +4,8 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider"
 import { ScaleProvider } from "@/contexts/scale-context";
 import { Toaster } from "@/components/ui/sonner"
+import { metaData } from "@/lib/site";
+import { ViewCounter } from "@/components/views-counter";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -15,9 +17,42 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+
 export const metadata: Metadata = {
-  title: "Github Designer",
-  description: "Made with love",
+  metadataBase: new URL(metaData.baseUrl),
+  title: {
+    default: metaData.title,
+    template: `%s`,
+  },
+  description: metaData.description,
+  openGraph: {
+    images: "/og.png",
+    title: metaData.title,
+    description: metaData.description,
+    url: metaData.baseUrl,
+    siteName: metaData.name,
+    locale: "en_US",
+    type: "website",
+  },
+  keywords: ["Github", "Heatmap", 'Design', 'Paint'],
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
+  twitter: {
+    title: "@Dharmeshwr",
+    card: "summary_large_image",
+  },
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({
@@ -49,6 +84,7 @@ export default function RootLayout({
             <Toaster />
           </ScaleProvider>
         </ThemeProvider>
+        <ViewCounter />
       </body>
     </html>
   );

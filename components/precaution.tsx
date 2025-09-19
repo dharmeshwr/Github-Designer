@@ -74,7 +74,6 @@ export default function Precautions() {
               }}
               className="text-muted-foreground mt-6 space-y-6 text-sm"
             >
-              {/* How It Works Section */}
               <div>
                 <h3 className="font-semibold text-lg text-primary mb-2 flex items-center">
                   <Sparkles size={18} className="mr-2" /> How It Works
@@ -96,7 +95,9 @@ export default function Precautions() {
                   <AlertTriangle size={20} className="mr-3 mt-0.5 flex-shrink-0" />
                   <div>
                     <h4 className="font-semibold">Important Note</h4>
-                    <p className="text-xs">Applying a complex drawing can create hundreds or even thousands of commits. So they can take a while to complete.</p>
+                    <p className="text-xs">
+                      Applying a complex drawing can generate a large number of commits, and the process may take a while to complete.And also for security purposes, our application does not request repository deletion permissions. Consequently, any repository created by this tool must be deleted manually by you through your GitHub account.
+                    </p>
                   </div>
                 </div>
               </div>
