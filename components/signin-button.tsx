@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { CheckCircle } from "lucide-react";
+import { CheckCircle, Link, Link2 } from "lucide-react";
 import React from "react";
 
 interface SignInButtonProps {
@@ -30,6 +30,7 @@ export default function SignInButton({
         className
       )}
     >
+      <Link size={15} />
       Link your GitHub
     </a>
   );

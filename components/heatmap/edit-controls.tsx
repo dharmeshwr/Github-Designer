@@ -122,10 +122,12 @@ const EditControls: React.FC<EditControlsProps> = ({
                     <button
                       key={value}
                       onClick={() => setSelectedBrushValue(value)}
-                      className={`p-1 rounded-md transition-transform duration-150 ${selectedBrushValue === value ? 'ring-2 ring-primary/70 scale-110' : 'ring-1 ring-gray-600'}`}
+                      className={`p-1 rounded-md transition-transform duration-150 group ${selectedBrushValue === value ? 'ring-2 ring-primary/70 scale-110' : 'ring-1 ring-gray-600'}`}
                       title={`${value} contributions`}
                     >
-                      <div className="size-6 rounded-sm" style={{ backgroundColor: getColor(value, colors) }} />
+                      <div className="size-6 rounded-sm group-hover:grayscale-25" style={{ backgroundColor: getColor(value, colors) }}>
+                        <span className="group-hover:opacity-100 opacity-0 pointer-events-none">{value}</span>
+                      </div>
                     </button>
                   ))}
                 </div>

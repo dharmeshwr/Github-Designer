@@ -1,4 +1,3 @@
-// ./index.tsx
 'use client'
 import "./index.css";
 import React, { useRef, useState, useMemo, useCallback, useEffect } from "react";
@@ -15,6 +14,8 @@ import HeatmapGrid from "./grid";
 import EditControls from "./edit-controls";
 import { toast } from "sonner";
 import { alphabetPatterns } from "./patterns";
+import { getCurrentUser } from "@/actions/user";
+import { redirect } from 'next/navigation';
 
 const Heatmap = () => {
   const heatmapContainer = useRef<HTMLDivElement | null>(null);
@@ -28,9 +29,6 @@ const Heatmap = () => {
   const [isApplying, setIsApplying] = useState(false);
 
   const { contributions, isLoading } = useContributionData(selectedPeriod);
-
-  // --- NEW: State for hover details text ---
-  const [hoveredCellDetails, setHoveredCellDetails] = useState<string | null>(null);
 
   const transformedContributions = useMemo(() => {
     return contributions?.calendar?.map(contribution => ({
@@ -151,6 +149,8 @@ const Heatmap = () => {
   }, [setEditedContributions, transformedContributions]);
 
   const handleApplyChanges = async () => {
+    const user = await getCurrentUser()
+    if (!user) redirect('/api/auth/github')
     const changesToSend: { date: string; count: number }[] = [];
     Object.entries(editedContributions).forEach(([date, newCount]) => {
       const originalCount = contribMap.get(date) ?? 0;
@@ -337,13 +337,6 @@ const Heatmap = () => {
       if (target) {
         const dateKey = target.dataset.date!;
 
-        // --- NEW: Update hover details text ---
-        const editedCount = editedContributions[dateKey];
-        const originalCount = contribMap.get(dateKey) ?? 0;
-        const currentCount = editedCount !== undefined ? editedCount : originalCount;
-        const formattedDate = format(new Date(dateKey), "MMM d, yyyy");
-        setHoveredCellDetails(`${currentCount} contributions on ${formattedDate}`);
-
         if (dateKey !== hoveredCellKey) {
           setHoveredCellKey(dateKey);
           if (isEditing && selectedPattern) {
@@ -355,13 +348,11 @@ const Heatmap = () => {
       } else {
         if (hoveredCellKey) setHoveredCellKey(null);
         if (isEditing && patternPreviewCells.size > 0) setPatternPreviewCells(new Set());
-        setHoveredCellDetails(null);
       }
     };
     const handleMouseLeave = () => {
       setHoveredCellKey(null);
       if (isEditing) setPatternPreviewCells(new Set());
-      setHoveredCellDetails(null);
     };
 
     container.addEventListener('mousemove', handleMouseMove);
@@ -380,7 +371,7 @@ const Heatmap = () => {
   }, [isEditing]);
 
   return (
-    <div className="w-full flex flex-col items-center justify-center min-w-[300px] font-sans">
+    <div className="w-full flex flex-col items-center justify-center min-w-[300px] font-sans z-10">
       <div className="p-4 border rounded-lg w-fit max-w-full" style={{ backgroundColor: heatmapBg }}>
         <div className="flex justify-between items-center mb-2">
           <div className="text-gray-300">
@@ -388,14 +379,10 @@ const Heatmap = () => {
               <span>Fetching contributions...</span>
             ) : (
               <span className="font-semibold">
-                {hoveredCellDetails ? (
-                  hoveredCellDetails
-                ) : (
-                  <>
-                    {contributions?.totalContributions || 0} contributions
-                    {selectedPeriod === 'rolling' ? ' in the last year' : ` in ${selectedPeriod}`}
-                  </>
-                )}
+                <>
+                  {contributions?.totalContributions || 0} contributions
+                  {selectedPeriod === 'rolling' ? ' in the last year' : ` in ${selectedPeriod}`}
+                </>
               </span>
             )}
           </div>
@@ -418,7 +405,7 @@ const Heatmap = () => {
           </Select>
         </div>
 
-        <div className="w-full overflow-x-auto" ref={heatmapContainer}>
+        <div className="w-full overflow-x-auto noscrollbar" ref={heatmapContainer}>
           <div className="inline-block">
             <div className="flex" style={{ gap: `${scaledGap}rem` }}>
               <div className="flex flex-col flex-shrink-0" style={{ gap: `${scaledGap}rem`, paddingTop: `${1.25 * scaleFactor}rem` }}>

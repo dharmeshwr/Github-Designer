@@ -1,4 +1,3 @@
-// ./cell.tsx
 'use client'
 import React from "react";
 import { format, isAfter } from "date-fns";
@@ -19,7 +18,6 @@ type CellProps = {
   isPatternHovered: boolean;
   brushValue: number | null;
 };
-
 const Cell: React.FC<CellProps> = React.memo(
   ({
     day,
@@ -39,6 +37,7 @@ const Cell: React.FC<CellProps> = React.memo(
     const dateKey = format(day, "yyyy-MM-dd");
     const isFutureDate = isAfter(day, today);
     const currentCount = editedCount ?? originalCount;
+
 
     let finalDisplayCount = currentCount;
     // --- MODIFIED LOGIC ---

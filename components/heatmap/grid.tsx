@@ -17,7 +17,6 @@ type GridProps = {
   selectedYear: number | null;
   hoveredCellKey: string | null;
   brushValue: number | null;
-  // --- NEW PROP ---
   patternPreviewCells: Set<string>;
 };
 
@@ -48,7 +47,7 @@ const HeatmapGrid: React.FC<GridProps> = React.memo((props) => {
   }, [contributionsCalendar]);
 
   return (
-    <div className="inline-block">
+    <div className="inline-block cursor-crosshair">
       <div className="flex" style={{ gap: `${scaledGap}rem` }}>
         <div className="flex flex-col flex-shrink-0" style={{ gap: `${scaledGap}rem`, paddingTop: `${1.25}rem` }}>
         </div>
