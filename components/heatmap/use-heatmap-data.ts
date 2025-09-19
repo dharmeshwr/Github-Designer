@@ -40,9 +40,9 @@ export const useHeatmapData = ({
   const getColor = useMemo(() => {
     return (count: number, colors: string[]) => {
       if (count <= 0) return colors[0];
-      if (count <= 2) return colors[1];
-      if (count <= 4) return colors[2];
-      if (count <= 6) return colors[3];
+      if (count <= 4) return colors[1];
+      if (count <= 9) return colors[2];
+      if (count <= 13) return colors[3];
       return colors[4] || colors[colors.length - 1];
     };
   }, []);

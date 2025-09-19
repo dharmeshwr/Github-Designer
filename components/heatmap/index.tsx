@@ -13,6 +13,7 @@ import { useScale } from "@/contexts/scale-context";
 import HeatmapGrid from "./grid";
 import EditControls from "./edit-controls";
 import { toast } from "sonner";
+import { alphabetPatterns } from "./patterns"; // Import patterns
 
 const Heatmap = () => {
   const heatmapContainer = useRef<HTMLDivElement | null>(null);
@@ -22,7 +23,7 @@ const Heatmap = () => {
   const [selectedPeriod, setSelectedPeriod] = useLocalStorage<string>("heatmap_period", "rolling");
 
   const [isEditing, setIsEditing] = useState(false);
-  const [selectedBrushValue, setSelectedBrushValue] = useState<number | null>(0);
+  const [selectedBrushValue, setSelectedBrushValue] = useState<number | null>(1);
   const [isApplying, setIsApplying] = useState(false);
 
   const { contributions, isLoading } = useContributionData(selectedPeriod);
@@ -44,6 +45,11 @@ const Heatmap = () => {
 
   const [editedContributions, setEditedContributions] = useState<Record<string, number>>({});
   const [hoveredCellKey, setHoveredCellKey] = useState<string | null>(null);
+
+  // --- NEW STATE FOR PATTERNS ---
+  const [selectedPattern, setSelectedPattern] = useState<string | null>(null);
+  const [patternPreviewCells, setPatternPreviewCells] = useState<Set<string>>(new Set());
+
   const selectedBrushRef = useRef<number | null>(null);
   selectedBrushRef.current = selectedBrushValue;
 
@@ -70,6 +76,16 @@ const Heatmap = () => {
     }
     return array;
   }, [startDate, weeks]);
+
+  const weeksMap = useMemo(() => {
+    const map = new Map<string, { weekIndex: number; dayIndex: number }>();
+    weeksArray.forEach((week, weekIndex) => {
+      week.forEach((day, dayIndex) => {
+        map.set(format(day, "yyyy-MM-dd"), { weekIndex, dayIndex });
+      });
+    });
+    return map;
+  }, [weeksArray]);
 
   const monthLabels = useMemo(() => {
     const labels: React.ReactNode[] = [];
@@ -130,7 +146,6 @@ const Heatmap = () => {
     }
   }, [setEditedContributions, transformedContributions]);
 
-  // --- MODIFIED: Use streaming fetch for SSE ---
   const handleApplyChanges = async () => {
     const changesToSend: { date: string; count: number }[] = [];
     Object.entries(editedContributions).forEach(([date, newCount]) => {
@@ -193,11 +208,9 @@ const Heatmap = () => {
               } else if (msg.type === 'done') {
                 toast.success("Changes applied successfully!", { id: toastId });
                 setEditedContributions({});
-                // Optionally handle repo info: msg.repo.url
               } else if (msg.type === 'error') {
                 throw new Error(msg.error);
               }
-              // Ignore other types or handle as needed
             } catch (parseErr) {
               console.error("Failed to parse SSE data:", parseErr);
             }
@@ -211,6 +224,36 @@ const Heatmap = () => {
       setIsApplying(false);
     }
   };
+
+  const getPatternCells = useCallback((startCellKey: string, patternKey: string | null): Set<string> => {
+    const cells = new Set<string>();
+    if (!patternKey || !startCellKey) return cells;
+
+    const startCellCoords = weeksMap.get(startCellKey);
+    const patternMatrix = alphabetPatterns[patternKey];
+    if (!startCellCoords || !patternMatrix) return cells;
+
+    patternMatrix.forEach((row, rowIndex) => {
+      row.forEach((cellValue, colIndex) => {
+        if (cellValue === 1) {
+          const targetWeekIndex = startCellCoords.weekIndex + colIndex;
+          const targetDayIndex = rowIndex;
+
+          if (
+            targetWeekIndex < weeksArray.length &&
+            targetDayIndex < 7 &&
+            weeksArray[targetWeekIndex] &&
+            weeksArray[targetWeekIndex][targetDayIndex]
+          ) {
+            const targetDate = weeksArray[targetWeekIndex][targetDayIndex];
+            cells.add(format(targetDate, "yyyy-MM-dd"));
+          }
+        }
+      });
+    });
+
+    return cells;
+  }, [weeksArray, weeksMap]);
 
   useEffect(() => {
     const container = heatmapContainer.current;
@@ -231,16 +274,42 @@ const Heatmap = () => {
     const handleLeftClick = (ev: MouseEvent) => {
       const info = getTargetInfo(ev);
       if (!info) return;
-      const newCount = info.countBeforeClick + selectedBrushRef.current!;
-      setEditedContributions(prev => ({ ...prev, [info.dateKey]: newCount }));
+
+      if (selectedPattern) {
+        const patternCells = getPatternCells(info.dateKey, selectedPattern);
+        setEditedContributions(prev => {
+          const newEdits = { ...prev };
+          patternCells.forEach(cellKey => {
+            const currentCount = newEdits[cellKey] ?? contribMap.get(cellKey) ?? 0;
+            newEdits[cellKey] = currentCount + selectedBrushRef.current!;
+          });
+          return newEdits;
+        });
+      } else {
+        const newCount = info.countBeforeClick + selectedBrushRef.current!;
+        setEditedContributions(prev => ({ ...prev, [info.dateKey]: newCount }));
+      }
     };
 
     const handleRightClick = (ev: MouseEvent) => {
       ev.preventDefault();
       const info = getTargetInfo(ev);
       if (!info) return;
-      const newCount = Math.max(0, info.countBeforeClick - selectedBrushRef.current!);
-      setEditedContributions(prev => ({ ...prev, [info.dateKey]: newCount }));
+
+      if (selectedPattern) {
+        const patternCells = getPatternCells(info.dateKey, selectedPattern);
+        setEditedContributions(prev => {
+          const newEdits = { ...prev };
+          patternCells.forEach(cellKey => {
+            const currentCount = newEdits[cellKey] ?? contribMap.get(cellKey) ?? 0;
+            newEdits[cellKey] = Math.max(0, currentCount - selectedBrushRef.current!);
+          });
+          return newEdits;
+        });
+      } else {
+        const newCount = Math.max(0, info.countBeforeClick - selectedBrushRef.current!);
+        setEditedContributions(prev => ({ ...prev, [info.dateKey]: newCount }));
+      }
     };
 
     container.addEventListener('click', handleLeftClick);
@@ -250,24 +319,36 @@ const Heatmap = () => {
       container.removeEventListener('click', handleLeftClick);
       container.removeEventListener('contextmenu', handleRightClick);
     };
-  }, [isEditing, editedContributions, contribMap, setEditedContributions]);
+  }, [isEditing, editedContributions, contribMap, setEditedContributions, selectedPattern, getPatternCells]);
 
   useEffect(() => {
     const container = heatmapContainer.current;
     if (!container || !isEditing) {
       if (hoveredCellKey) setHoveredCellKey(null);
+      if (patternPreviewCells.size > 0) setPatternPreviewCells(new Set());
       return;
     }
     const handleMouseMove = (ev: MouseEvent) => {
       const target = (ev.target as Element).closest?.('.heatmap-cell') as HTMLElement | null;
       if (target) {
         const dateKey = target.dataset.date!;
-        if (dateKey !== hoveredCellKey) setHoveredCellKey(dateKey);
+        if (dateKey !== hoveredCellKey) {
+          setHoveredCellKey(dateKey);
+          if (selectedPattern) {
+            setPatternPreviewCells(getPatternCells(dateKey, selectedPattern));
+          } else {
+            if (patternPreviewCells.size > 0) setPatternPreviewCells(new Set());
+          }
+        }
       } else {
         if (hoveredCellKey) setHoveredCellKey(null);
+        if (patternPreviewCells.size > 0) setPatternPreviewCells(new Set());
       }
     };
-    const handleMouseLeave = () => setHoveredCellKey(null);
+    const handleMouseLeave = () => {
+      setHoveredCellKey(null);
+      setPatternPreviewCells(new Set());
+    };
 
     container.addEventListener('mousemove', handleMouseMove);
     container.addEventListener('mouseleave', handleMouseLeave);
@@ -275,7 +356,7 @@ const Heatmap = () => {
       container.removeEventListener('mousemove', handleMouseMove);
       container.removeEventListener('mouseleave', handleMouseLeave);
     };
-  }, [isEditing, hoveredCellKey]);
+  }, [isEditing, hoveredCellKey, selectedPattern, getPatternCells, patternPreviewCells.size]);
 
   useEffect(() => {
     const container = heatmapContainer.current;
@@ -287,7 +368,6 @@ const Heatmap = () => {
   return (
     <div className="w-full flex flex-col items-center justify-center min-w-[300px] font-sans">
       <div className="p-4 border rounded-lg w-fit max-w-full" style={{ backgroundColor: heatmapBg }}>
-        {/* ... Rest of the JSX is unchanged ... */}
         <div className="flex justify-between items-center mb-4">
           <div className="text-gray-300">
             {isLoading ? (
@@ -343,6 +423,7 @@ const Heatmap = () => {
                   selectedYear={selectedYear}
                   hoveredCellKey={hoveredCellKey}
                   brushValue={selectedBrushValue}
+                  patternPreviewCells={patternPreviewCells} // Pass new prop
                 />
               </div>
             </div>
@@ -367,8 +448,9 @@ const Heatmap = () => {
         onApply={handleApplyChanges}
         onClear={handleClearEdits}
         hasEdits={Object.entries(editedContributions).some(([date, count]) => (contribMap.get(date) ?? 0) !== count)}
-        // --- PASS NEW PROP ---
         isApplying={isApplying}
+        selectedPattern={selectedPattern}
+        setSelectedPattern={setSelectedPattern}
       />
     </div>
   );

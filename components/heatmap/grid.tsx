@@ -17,6 +17,8 @@ type GridProps = {
   selectedYear: number | null;
   hoveredCellKey: string | null;
   brushValue: number | null;
+  // --- NEW PROP ---
+  patternPreviewCells: Set<string>;
 };
 
 const HeatmapGrid: React.FC<GridProps> = React.memo((props) => {
@@ -34,6 +36,7 @@ const HeatmapGrid: React.FC<GridProps> = React.memo((props) => {
     selectedYear,
     hoveredCellKey,
     brushValue,
+    patternPreviewCells, // Destructure new prop
   } = props;
 
   const contribMap = useMemo(() => {
@@ -57,7 +60,10 @@ const HeatmapGrid: React.FC<GridProps> = React.memo((props) => {
                   const key = format(day, "yyyy-MM-dd");
                   const originalCount = contribMap.get(key) ?? 0;
                   const editedCount = editedContributions[key];
-                  const isHovered = key === hoveredCellKey;
+                  // --- MODIFIED LOGIC ---
+                  const isHovered = key === hoveredCellKey && patternPreviewCells.size === 0;
+                  const isPatternHovered = patternPreviewCells.has(key);
+
                   return (
                     <Cell
                       key={key}
@@ -72,6 +78,7 @@ const HeatmapGrid: React.FC<GridProps> = React.memo((props) => {
                       viewType={viewType}
                       selectedYear={selectedYear}
                       isHovered={isHovered}
+                      isPatternHovered={isPatternHovered} // Pass new prop
                       brushValue={brushValue}
                     />
                   );
@@ -95,7 +102,8 @@ const HeatmapGrid: React.FC<GridProps> = React.memo((props) => {
     a.getColor === b.getColor &&
     a.editedContributions === b.editedContributions &&
     a.hoveredCellKey === b.hoveredCellKey &&
-    a.brushValue === b.brushValue
+    a.brushValue === b.brushValue &&
+    a.patternPreviewCells === b.patternPreviewCells // Add to memo check
   );
 });
 

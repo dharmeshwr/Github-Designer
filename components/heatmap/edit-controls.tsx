@@ -1,9 +1,8 @@
-// ./edit-controls.tsx
 'use client'
 import React from "react";
 import { Button } from "../ui/button";
-// --- NEW: Import a loader icon ---
 import { Pen, X, Check, Trash2, Loader2 } from "lucide-react";
+import { alphabetPatterns } from "./patterns"; // Import the patterns
 
 type EditControlsProps = {
   isEditing: boolean;
@@ -16,11 +15,24 @@ type EditControlsProps = {
   onApply: () => void;
   onClear: () => void;
   hasEdits: boolean;
-  // --- NEW PROP ---
   isApplying: boolean;
+  selectedPattern: string | null;
+  setSelectedPattern: (patternKey: string | null) => void;
 };
 
-const brushOptions = [0, 2, 4, 6, 8];
+const brushOptions = [1, 5, 10, 14];
+const patternKeys = Object.keys(alphabetPatterns);
+
+// A default 7x5 matrix with a single cell in the middle for the "Single Cell" preview
+const singleCellPattern = [
+  [0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0],
+  [0, 0, 1, 0, 0],
+  [0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 0],
+];
 
 const EditControls: React.FC<EditControlsProps> = ({
   isEditing,
@@ -33,11 +45,16 @@ const EditControls: React.FC<EditControlsProps> = ({
   onApply,
   onClear,
   hasEdits,
-  // --- NEW PROP ---
   isApplying,
+  selectedPattern,
+  setSelectedPattern,
 }) => {
+  const previewMatrix = selectedPattern
+    ? alphabetPatterns[selectedPattern]
+    : singleCellPattern;
+
   return (
-    <div className="mt-5 w-fit">
+    <div className="mt-5 w-full flex flex-col justify-center ">
       <div className="inline-flex w-full justify-center">
         <Button variant={"outline"} onClick={toggleEditMode}>
           {isEditing ? (
@@ -53,23 +70,78 @@ const EditControls: React.FC<EditControlsProps> = ({
       </div>
 
       {isEditing && (
-        <div className="mt-4 p-4 border rounded-lg w-fit" style={{ backgroundColor: heatmapBg }}>
-          <p className="text-sm text-center mb-3 font-semibold">Select a contribution level to paint</p>
-          <div className="flex items-center justify-center gap-3">
-            {brushOptions.map(value => (
-              <button
-                key={value}
-                onClick={() => setSelectedBrushValue(value)}
-                className={`p-1 rounded-md transition-transform duration-150 ${selectedBrushValue === value ? 'ring-2 ring-blue-500 scale-110' : 'ring-1 ring-gray-600'}`}
-                title={`${value} contributions`}
-              >
-                <div className="size-6 rounded-sm" style={{ backgroundColor: getColor(value, colors) }} />
-              </button>
-            ))}
+        <div className="mt-4 p-4 border rounded-lg place-self-center min-w-fit" style={{ backgroundColor: heatmapBg }}>
+          <div className="flex gap-6">
+            <div className="flex flex-col items-center p-3 rounded-md">
+              <p className="text-xs text-gray-400 mb-2 font-semibold">PREVIEW</p>
+              <div className="flex gap-1">
+                {Array.from({ length: 5 }).map((_, colIndex) => (
+                  <div key={colIndex} className="flex flex-col gap-1">
+                    {Array.from({ length: 7 }).map((_, rowIndex) => {
+                      const cellValue = previewMatrix[rowIndex][colIndex];
+                      return (
+                        <div
+                          key={`${rowIndex}-${colIndex}`}
+                          className="size-5 rounded-xs"
+                          style={{
+                            backgroundColor: cellValue === 1
+                              ? getColor(selectedBrushValue ?? 1, colors)
+                              : colors[0],
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-5 flex-grow">
+              <div>
+                <p className="text-sm mb-3 font-semibold">1. Select Brush Strength</p>
+                <div className="flex items-center gap-3">
+                  {brushOptions.map(value => (
+                    <button
+                      key={value}
+                      onClick={() => setSelectedBrushValue(value)}
+                      className={`p-1 rounded-md transition-transform duration-150 ${selectedBrushValue === value ? 'ring-2 ring-primary/70 scale-110' : 'ring-1 ring-gray-600'}`}
+                      title={`${value} contributions`}
+                    >
+                      <div className="size-6 rounded-sm" style={{ backgroundColor: getColor(value, colors) }} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Pattern Selection */}
+              <div>
+                <p className="text-sm mb-3 font-semibold">2. Select Pattern</p>
+                <div className="flex gap-2 flex-wrap max-w-2xl">
+                  <Button
+                    size="sm"
+                    variant='outline'
+                    className={`transition-transform duration-150 ${!selectedPattern ? 'ring-2 ring-primary/70 scale-105' : 'ring-0 ring-gray-600'}`}
+                    onClick={() => setSelectedPattern(null)}
+                  >
+                    Single
+                  </Button>
+                  {patternKeys.map(key => (
+                    <Button
+                      key={key}
+                      size="sm"
+                      variant='outline'
+                      className={`transition-transform duration-150 ${selectedPattern === key ? 'ring-2 ring-primary/70 scale-105' : 'ring-0 ring-gray-600'}`}
+                      onClick={() => setSelectedPattern(key)}>
+                      {key}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="mt-4 flex gap-2 justify-center">
-            {/* --- MODIFIED BUTTON --- */}
-            <Button onClick={onApply} disabled={!hasEdits || isApplying} >
+
+          <div className="mt-6 flex gap-2 justify-center border-t pt-4">
+            <Button onClick={onApply} disabled={!hasEdits || isApplying}>
               {isApplying ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -81,7 +153,6 @@ const EditControls: React.FC<EditControlsProps> = ({
                 </>
               )}
             </Button>
-            {/* --- END MODIFICATION --- */}
             <Button variant="destructive" onClick={onClear} disabled={!hasEdits || isApplying}>
               <Trash2 size={14} className="mr-1" /> Clear Edits
             </Button>

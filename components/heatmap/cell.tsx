@@ -15,6 +15,8 @@ type CellProps = {
   viewType: "rolling" | "calendar";
   selectedYear: number | null;
   isHovered: boolean;
+  // --- NEW PROP ---
+  isPatternHovered: boolean;
   brushValue: number | null;
 };
 
@@ -31,6 +33,7 @@ const Cell: React.FC<CellProps> = React.memo(
     viewType,
     selectedYear,
     isHovered,
+    isPatternHovered, // Destructure new prop
     brushValue,
   }) => {
     const dateKey = format(day, "yyyy-MM-dd");
@@ -38,7 +41,8 @@ const Cell: React.FC<CellProps> = React.memo(
     const currentCount = editedCount ?? originalCount;
 
     let finalDisplayCount = currentCount;
-    if (isHovered && brushValue !== null && !isFutureDate) {
+    // --- MODIFIED LOGIC ---
+    if ((isHovered || isPatternHovered) && brushValue !== null && !isFutureDate) {
       finalDisplayCount = currentCount + brushValue;
     }
 
@@ -98,6 +102,7 @@ const Cell: React.FC<CellProps> = React.memo(
       prev.selectedYear === next.selectedYear &&
       prev.colors === next.colors &&
       prev.isHovered === next.isHovered &&
+      prev.isPatternHovered === next.isPatternHovered && // Add to memo check
       prev.brushValue === next.brushValue
     );
   }
