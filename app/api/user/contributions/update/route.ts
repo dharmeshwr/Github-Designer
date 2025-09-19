@@ -8,11 +8,9 @@ import { Octokit } from "@octokit/rest";
 
 type Patch = { date: string; count: number };
 
-// small sleep to throttle commit creation (ms)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function genRepoName() {
-  // random-ish name: contrib-art-<6 hex>
   return `contrib-art-${randomBytes(3).toString("hex")}`;
 }
 
@@ -20,11 +18,9 @@ function isoDateOrNull(s: unknown): string | null {
   if (typeof s !== "string") return null;
   const parsed = new Date(s);
   if (Number.isNaN(parsed.getTime())) return null;
-  // return YYYY-MM-DD
   return parsed.toISOString().slice(0, 10);
 }
 
-// ensure request body is valid array of {date,count}
 function validatePayload(body: any): Patch[] | null {
   if (!Array.isArray(body)) return null;
   const out: Patch[] = [];
@@ -49,28 +45,28 @@ export async function POST(request: Request) {
       }
 
       try {
-        // 1) auth via httpOnly cookie
         const cookieStore = await cookies();
         const sid = cookieStore.get("sid")?.value;
         if (!sid) {
-          send({ type: 'error', error: "missing session cookie" });
+          send({ type: "error", error: "missing session cookie" });
           controller.close();
           return;
         }
 
-        // 2) parse body
         const body = await request.json().catch(() => null);
         const patches = validatePayload(body);
         if (!patches) {
-          send({ type: 'error', error: "invalid payload — expected [{date: 'YYYY-MM-DD', count: number}, ...]" });
+          send({
+            type: "error",
+            error: "invalid payload — expected [{date: 'YYYY-MM-DD', count: number}, ...]",
+          });
           controller.close();
           return;
         }
 
-        // 3) session -> githubId (Redis), then DB lookup
         const githubId = await redis.get<string>(sid);
         if (!githubId) {
-          send({ type: 'error', error: "session not found" });
+          send({ type: "error", error: "session not found" });
           controller.close();
           return;
         }
@@ -78,20 +74,21 @@ export async function POST(request: Request) {
         await connectDB();
         const user = await User.findOne({ githubId }).exec();
         if (!user) {
-          send({ type: 'error', error: "not authenticated" });
+          send({ type: "error", error: "not authenticated" });
           controller.close();
           return;
         }
 
-        // require that we have a verified email (commits need author.email associated to count)
         const authorEmail = (user.email as string | undefined) ?? null;
         if (!authorEmail) {
-          send({ type: 'error', error: "no verified email on file. Please make your email available in GitHub or re-authenticate." });
+          send({
+            type: "error",
+            error: "no verified email on file. Please make your email available in GitHub or re-authenticate.",
+          });
           controller.close();
           return;
         }
 
-        // decrypt token and init octokit
         const rawToken = decryptToken(user.encryptedToken);
         const octokit = new Octokit({ auth: rawToken });
 
@@ -107,7 +104,7 @@ export async function POST(request: Request) {
         const repoHtmlUrl = createResp.data.html_url;
         const defaultBranch = createResp.data.default_branch ?? "main";
 
-        send({ type: 'repo_created', repo: { owner: repoOwner, name: repoName, url: repoHtmlUrl } });
+        send({ type: "repo_created", repo: { owner: repoOwner, name: repoName, url: repoHtmlUrl } });
 
         // 5) For each date, create `count` commits — update README.md each commit
         const summary: { date: string; requested: number; created: number }[] = [];
@@ -116,11 +113,11 @@ export async function POST(request: Request) {
           const targetDate = p.date; // YYYY-MM-DD
           const countWanted = p.count;
 
-          send({ type: 'date_start', date: targetDate, requested: countWanted });
+          send({ type: "date_start", date: targetDate, requested: countWanted });
 
           if (countWanted <= 0) {
             summary.push({ date: targetDate, requested: countWanted, created: 0 });
-            send({ type: 'date_done', date: targetDate, created: 0 });
+            send({ type: "date_done", date: targetDate, created: 0 });
             continue;
           }
 
@@ -129,19 +126,21 @@ export async function POST(request: Request) {
           let currentReadme = "# Contribution Art\n\n";
 
           try {
-            const readmeResp: any = await octokit.request("GET /repos/{owner}/{repo}/contents/{path}", {
-              owner: repoOwner,
-              repo: repoName,
-              path: "README.md",
-              ref: defaultBranch,
-            });
+            const readmeResp: any = await octokit.request(
+              "GET /repos/{owner}/{repo}/contents/{path}",
+              {
+                owner: repoOwner,
+                repo: repoName,
+                path: "README.md",
+                ref: defaultBranch,
+              }
+            );
 
             if (readmeResp?.data?.content) {
               currentReadme = Buffer.from(readmeResp.data.content, "base64").toString("utf8");
             }
           } catch (e: any) {
             // If not found (404) we'll create it when committing; ignore other errors for now.
-            // console.warn("readme fetch error (may be missing):", e?.message ?? e);
           }
 
           // get starting ref & commit/tree sha (we will update these as we make commits)
@@ -153,91 +152,159 @@ export async function POST(request: Request) {
           });
           let baseCommitSha: string = startRefResp.data.object.sha;
 
-          const startCommitResp: any = await octokit.request("GET /repos/{owner}/{repo}/git/commits/{commit_sha}", {
-            owner: repoOwner,
-            repo: repoName,
-            commit_sha: baseCommitSha,
-          });
+          const startCommitResp: any = await octokit.request(
+            "GET /repos/{owner}/{repo}/git/commits/{commit_sha}",
+            {
+              owner: repoOwner,
+              repo: repoName,
+              commit_sha: baseCommitSha,
+            }
+          );
           let baseTreeSha: string = startCommitResp.data.tree.sha;
 
           let createdForThisDate = 0;
 
-          // generate commits by repeatedly updating README
+          // Robust commit loop: re-fetch head before each commit and retry on 422
           for (let i = 0; i < countWanted; i++) {
-            // Unique commit timestamp (midday + i seconds)
-            const commitDate = new Date(`${targetDate}T12:00:00Z`);
-            commitDate.setSeconds(commitDate.getSeconds() + i);
+            let attempt = 0;
+            const maxAttempts = 4;
+            let committed = false;
 
-            // Append a new line to README content so every commit has different tree
-            const timeIso = new Date().toISOString();
-            const line = `- ${targetDate} commit #${i + 1} @ ${timeIso}\n`;
-            const newReadmeContent = currentReadme + line;
+            while (attempt < maxAttempts && !committed) {
+              attempt++;
 
-            // 1) create blob for new README content
-            const createBlobResp: any = await octokit.request("POST /repos/{owner}/{repo}/git/blobs", {
-              owner: repoOwner,
-              repo: repoName,
-              content: Buffer.from(newReadmeContent).toString("base64"),
-              encoding: "base64",
-            });
+              try {
+                // 0) refresh current head and tree so we always base our commit on the latest head
+                const currentRefResp: any = await octokit.request(
+                  "GET /repos/{owner}/{repo}/git/ref/{ref}",
+                  {
+                    owner: repoOwner,
+                    repo: repoName,
+                    ref: refName,
+                  }
+                );
+                baseCommitSha = currentRefResp.data.object.sha;
 
-            // 2) create tree that replaces README.md using base_tree to avoid clobbering other files
-            const createTreeResp: any = await octokit.request("POST /repos/{owner}/{repo}/git/trees", {
-              owner: repoOwner,
-              repo: repoName,
-              base_tree: baseTreeSha,
-              tree: [
-                {
-                  path: "README.md",
-                  mode: "100644",
-                  type: "blob",
-                  sha: createBlobResp.data.sha,
-                },
-              ],
-            });
+                const currentCommitResp: any = await octokit.request(
+                  "GET /repos/{owner}/{repo}/git/commits/{commit_sha}",
+                  {
+                    owner: repoOwner,
+                    repo: repoName,
+                    commit_sha: baseCommitSha,
+                  }
+                );
+                baseTreeSha = currentCommitResp.data.tree.sha;
 
-            // 3) create commit with author metadata and the new tree
-            const createCommitResp: any = await octokit.request("POST /repos/{owner}/{repo}/git/commits", {
-              owner: repoOwner,
-              repo: repoName,
-              message: `Contribution-art: ${targetDate} (${i + 1}/${countWanted})`,
-              tree: createTreeResp.data.sha,
-              parents: [baseCommitSha],
-              author: {
-                name: user.name || user.login,
-                email: authorEmail,
-                date: commitDate.toISOString(),
-              },
-            });
+                // Optional but safer: refresh README content at this ref so we don't clobber other changes
+                try {
+                  const readmeResp: any = await octokit.request(
+                    "GET /repos/{owner}/{repo}/contents/{path}",
+                    {
+                      owner: repoOwner,
+                      repo: repoName,
+                      path: "README.md",
+                      ref: baseCommitSha,
+                    }
+                  );
 
-            // 4) update the branch ref to point to the new commit
-            await octokit.request("PATCH /repos/{owner}/{repo}/git/refs/{ref}", {
-              owner: repoOwner,
-              repo: repoName,
-              ref: refName,
-              sha: createCommitResp.data.sha,
-            });
+                  if (readmeResp?.data?.content) {
+                    currentReadme = Buffer.from(readmeResp.data.content, "base64").toString("utf8");
+                  }
+                } catch (_) {
+                  // ignore missing README
+                }
 
-            // 5) update local state so next iteration builds on latest commit
-            baseCommitSha = createCommitResp.data.sha;
-            baseTreeSha = createTreeResp.data.sha;
-            currentReadme = newReadmeContent;
+                // Unique commit timestamp (midday + i seconds)
+                const commitDate = new Date(`${targetDate}T12:00:00Z`);
+                commitDate.setSeconds(commitDate.getSeconds() + i);
 
-            createdForThisDate++;
-            send({ type: 'commit_created', date: targetDate, index: i + 1 });
-            // polite pause to avoid hammering the API
-            await sleep(300);
+                // Append a new line to README content so every commit has different tree
+                const timeIso = new Date().toISOString();
+                const line = `- ${targetDate} commit #${i + 1} @ ${timeIso}\n`;
+                const newReadmeContent = currentReadme + line;
+
+                // 1) create blob for new README content
+                const createBlobResp: any = await octokit.request("POST /repos/{owner}/{repo}/git/blobs", {
+                  owner: repoOwner,
+                  repo: repoName,
+                  content: Buffer.from(newReadmeContent).toString("base64"),
+                  encoding: "base64",
+                });
+
+                // 2) create tree that replaces README.md using base_tree to avoid clobbering other files
+                const createTreeResp: any = await octokit.request("POST /repos/{owner}/{repo}/git/trees", {
+                  owner: repoOwner,
+                  repo: repoName,
+                  base_tree: baseTreeSha,
+                  tree: [
+                    {
+                      path: "README.md",
+                      mode: "100644",
+                      type: "blob",
+                      sha: createBlobResp.data.sha,
+                    },
+                  ],
+                });
+
+                // 3) create commit with author metadata and the new tree - use the refreshed baseCommitSha as parent
+                const createCommitResp: any = await octokit.request(
+                  "POST /repos/{owner}/{repo}/git/commits",
+                  {
+                    owner: repoOwner,
+                    repo: repoName,
+                    message: `Contribution-art: ${targetDate} (${i + 1}/${countWanted})`,
+                    tree: createTreeResp.data.sha,
+                    parents: [baseCommitSha],
+                    author: {
+                      name: user.name || user.login,
+                      email: authorEmail,
+                      date: commitDate.toISOString(),
+                    },
+                  }
+                );
+
+                // 4) update the branch ref to point to the new commit
+                await octokit.request("PATCH /repos/{owner}/{repo}/git/refs/{ref}", {
+                  owner: repoOwner,
+                  repo: repoName,
+                  ref: refName,
+                  sha: createCommitResp.data.sha,
+                });
+
+                // 5) update local state so next iteration builds on latest commit
+                baseCommitSha = createCommitResp.data.sha;
+                baseTreeSha = createTreeResp.data.sha;
+                currentReadme = newReadmeContent;
+
+                createdForThisDate++;
+                send({ type: "commit_created", date: targetDate, index: i + 1 });
+
+                // polite pause to avoid hammering the API
+                await sleep(300);
+
+                committed = true;
+              } catch (err: any) {
+                // If it's a 422 (non-fast-forward), retry after re-fetching head (unless out of attempts)
+                if (err?.status === 422 && attempt < maxAttempts) {
+                  // backoff then retry (we'll re-fetch the ref at top of loop)
+                  await sleep(200 * attempt);
+                  continue;
+                }
+                // any other error or max attempts reached: bubble up to outer try/catch
+                throw err;
+              }
+            } // end attempts
           } // end commits for day
 
           summary.push({ date: targetDate, requested: countWanted, created: createdForThisDate });
-          send({ type: 'date_done', date: targetDate, created: createdForThisDate });
+          send({ type: "date_done", date: targetDate, created: createdForThisDate });
         } // end patches loop
 
-        send({ type: 'done', summary, repo: { owner: repoOwner, name: repoName, url: repoHtmlUrl } });
+        send({ type: "done", summary, repo: { owner: repoOwner, name: repoName, url: repoHtmlUrl } });
         controller.close();
       } catch (err: any) {
         console.error("contribution update failed:", err);
-        send({ type: 'error', error: err?.message ?? "internal" });
+        send({ type: "error", error: err?.message ?? "internal" });
         controller.close();
       }
     },
@@ -245,9 +312,9 @@ export async function POST(request: Request) {
 
   return new Response(stream as unknown as BodyInit, {
     headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
     },
   });
 }
