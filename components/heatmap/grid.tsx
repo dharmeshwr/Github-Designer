@@ -36,7 +36,7 @@ const HeatmapGrid: React.FC<GridProps> = React.memo((props) => {
     selectedYear,
     hoveredCellKey,
     brushValue,
-    patternPreviewCells, // Destructure new prop
+    patternPreviewCells,
   } = props;
 
   const contribMap = useMemo(() => {

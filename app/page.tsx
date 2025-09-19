@@ -6,13 +6,13 @@ import LogoutButton from "@/components/logout-button";
 import { ModeToggle } from "@/components/mode-toggle";
 import SignInButton from "@/components/signin-button";
 import { Skeleton } from "@/components/ui/skeleton";
+// import { Starfield } from "@/components/ui/starfield";
 
 export default async function Home() {
   const user = await getCurrentUser()
 
   return (
     <div className="min-h-svh relative flex flex-col font-sans">
-
       <div className="flex justify-between p-5">
         <SignInButton isConnected={!!user} />
 

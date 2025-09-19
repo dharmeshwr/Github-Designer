@@ -1,3 +1,4 @@
+// ./index.tsx
 'use client'
 import "./index.css";
 import React, { useRef, useState, useMemo, useCallback, useEffect } from "react";
@@ -13,7 +14,7 @@ import { useScale } from "@/contexts/scale-context";
 import HeatmapGrid from "./grid";
 import EditControls from "./edit-controls";
 import { toast } from "sonner";
-import { alphabetPatterns } from "./patterns"; // Import patterns
+import { alphabetPatterns } from "./patterns";
 
 const Heatmap = () => {
   const heatmapContainer = useRef<HTMLDivElement | null>(null);
@@ -27,6 +28,9 @@ const Heatmap = () => {
   const [isApplying, setIsApplying] = useState(false);
 
   const { contributions, isLoading } = useContributionData(selectedPeriod);
+
+  // --- NEW: State for hover details text ---
+  const [hoveredCellDetails, setHoveredCellDetails] = useState<string | null>(null);
 
   const transformedContributions = useMemo(() => {
     return contributions?.calendar?.map(contribution => ({
@@ -46,8 +50,8 @@ const Heatmap = () => {
   const [editedContributions, setEditedContributions] = useState<Record<string, number>>({});
   const [hoveredCellKey, setHoveredCellKey] = useState<string | null>(null);
 
-  // --- NEW STATE FOR PATTERNS ---
   const [selectedPattern, setSelectedPattern] = useState<string | null>(null);
+  const [selectedPatternSize, setSelectedPatternSize] = useState<'small' | 'large'>('large');
   const [patternPreviewCells, setPatternPreviewCells] = useState<Set<string>>(new Set());
 
   const selectedBrushRef = useRef<number | null>(null);
@@ -161,7 +165,9 @@ const Heatmap = () => {
     }
 
     setIsApplying(true);
-    const toastId = toast.loading("Applying your changes...");
+    const toastId = toast.loading("Applying your changes...", {
+      description: "Don't refresh the page !!!, This can take a while. Feel free to grab a coffee!",
+    });
 
     try {
       const response = await fetch('/api/user/contributions/update', {
@@ -173,28 +179,23 @@ const Heatmap = () => {
       if (!response.ok) {
         throw new Error(response.statusText || `HTTP error ${response.status}`);
       }
-
       if (!response.body) {
         throw new Error("No response body");
       }
-
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       let totalRequested = changesToSend.reduce((sum, c) => sum + c.count, 0);
       let totalCreated = 0;
       let done = false;
-
       while (!done) {
         const { done: readDone, value } = await reader.read();
         done = readDone;
         if (value) {
           buffer += decoder.decode(value, { stream: true });
         }
-
         let events = buffer.split('\n\n');
-        buffer = events.pop() || ''; // Last incomplete event stays in buffer
-
+        buffer = events.pop() || '';
         for (const event of events) {
           const lines = event.split('\n');
           let dataLines = lines.filter(line => line.startsWith('data: ')).map(line => line.slice(6));
@@ -204,10 +205,12 @@ const Heatmap = () => {
               const msg = JSON.parse(dataStr);
               if (msg.type === 'commit_created') {
                 totalCreated++;
-                toast.loading(`Applied ${totalCreated}/${totalRequested} commits...`, { id: toastId });
+                toast.loading(`Applied ${totalCreated}/${totalRequested} commits...`, {
+                  id: toastId,
+                  description: "Don't refresh the page !!!, This can take a while. Feel free to grab a coffee !",
+                });
               } else if (msg.type === 'done') {
                 toast.success("Changes applied successfully!", { id: toastId });
-                setEditedContributions({});
               } else if (msg.type === 'error') {
                 throw new Error(msg.error);
               }
@@ -225,25 +228,27 @@ const Heatmap = () => {
     }
   };
 
-  const getPatternCells = useCallback((startCellKey: string, patternKey: string | null): Set<string> => {
+  const getPatternCells = useCallback((startCellKey: string, patternKey: string | null, patternSize: 'small' | 'large'): Set<string> => {
     const cells = new Set<string>();
     if (!patternKey || !startCellKey) return cells;
-
+    const patternData = alphabetPatterns[patternKey];
     const startCellCoords = weeksMap.get(startCellKey);
-    const patternMatrix = alphabetPatterns[patternKey];
-    if (!startCellCoords || !patternMatrix) return cells;
-
+    if (!patternData || !startCellCoords) return cells;
+    const patternMatrix = patternData[patternSize];
+    if (!patternMatrix || patternMatrix.length === 0) return cells;
+    const patternHeight = patternMatrix.length;
+    const patternWidth = patternMatrix[0].length;
+    const rowOffset = Math.floor(patternHeight / 2);
+    const colOffset = Math.floor(patternWidth / 2);
     patternMatrix.forEach((row, rowIndex) => {
       row.forEach((cellValue, colIndex) => {
         if (cellValue === 1) {
-          const targetWeekIndex = startCellCoords.weekIndex + colIndex;
-          const targetDayIndex = rowIndex;
-
+          const targetWeekIndex = (startCellCoords.weekIndex - colOffset) + colIndex;
+          const targetDayIndex = (startCellCoords.dayIndex - rowOffset) + rowIndex;
           if (
-            targetWeekIndex < weeksArray.length &&
-            targetDayIndex < 7 &&
-            weeksArray[targetWeekIndex] &&
-            weeksArray[targetWeekIndex][targetDayIndex]
+            targetWeekIndex >= 0 && targetWeekIndex < weeksArray.length &&
+            targetDayIndex >= 0 && targetDayIndex < 7 &&
+            weeksArray[targetWeekIndex]?.[targetDayIndex]
           ) {
             const targetDate = weeksArray[targetWeekIndex][targetDayIndex];
             cells.add(format(targetDate, "yyyy-MM-dd"));
@@ -251,7 +256,6 @@ const Heatmap = () => {
         }
       });
     });
-
     return cells;
   }, [weeksArray, weeksMap]);
 
@@ -262,31 +266,31 @@ const Heatmap = () => {
     const getTargetInfo = (ev: MouseEvent) => {
       const target = (ev.target as Element).closest?.('.heatmap-cell') as HTMLElement | null;
       if (!target || selectedBrushRef.current === null) return null;
-
       const dateKey = target.dataset.date!;
       const originalCount = contribMap.get(dateKey) ?? 0;
       const currentEditedCount = editedContributions[dateKey];
       const countBeforeClick = currentEditedCount !== undefined ? currentEditedCount : originalCount;
-
-      return { dateKey, countBeforeClick };
+      return { dateKey, countBeforeClick, originalCount };
     };
 
     const handleLeftClick = (ev: MouseEvent) => {
       const info = getTargetInfo(ev);
       if (!info) return;
-
       if (selectedPattern) {
-        const patternCells = getPatternCells(info.dateKey, selectedPattern);
+        const patternCells = getPatternCells(info.dateKey, selectedPattern, selectedPatternSize);
         setEditedContributions(prev => {
           const newEdits = { ...prev };
           patternCells.forEach(cellKey => {
-            const currentCount = newEdits[cellKey] ?? contribMap.get(cellKey) ?? 0;
-            newEdits[cellKey] = currentCount + selectedBrushRef.current!;
+            const originalCount = contribMap.get(cellKey) ?? 0;
+            const currentCount = newEdits[cellKey] ?? originalCount;
+            // --- MODIFIED: Clamp new count to a max of 20 ---
+            newEdits[cellKey] = Math.min(20, currentCount + selectedBrushRef.current!);
           });
           return newEdits;
         });
       } else {
-        const newCount = info.countBeforeClick + selectedBrushRef.current!;
+        // --- MODIFIED: Clamp new count to a max of 20 ---
+        const newCount = Math.min(20, info.countBeforeClick + selectedBrushRef.current!);
         setEditedContributions(prev => ({ ...prev, [info.dateKey]: newCount }));
       }
     };
@@ -295,19 +299,21 @@ const Heatmap = () => {
       ev.preventDefault();
       const info = getTargetInfo(ev);
       if (!info) return;
-
       if (selectedPattern) {
-        const patternCells = getPatternCells(info.dateKey, selectedPattern);
+        const patternCells = getPatternCells(info.dateKey, selectedPattern, selectedPatternSize);
         setEditedContributions(prev => {
           const newEdits = { ...prev };
           patternCells.forEach(cellKey => {
-            const currentCount = newEdits[cellKey] ?? contribMap.get(cellKey) ?? 0;
-            newEdits[cellKey] = Math.max(0, currentCount - selectedBrushRef.current!);
+            const originalCount = contribMap.get(cellKey) ?? 0;
+            const currentCount = newEdits[cellKey] ?? originalCount;
+            // --- MODIFIED: Clamp new count to be no less than original ---
+            newEdits[cellKey] = Math.max(originalCount, currentCount - selectedBrushRef.current!);
           });
           return newEdits;
         });
       } else {
-        const newCount = Math.max(0, info.countBeforeClick - selectedBrushRef.current!);
+        // --- MODIFIED: Clamp new count to be no less than original ---
+        const newCount = Math.max(info.originalCount, info.countBeforeClick - selectedBrushRef.current!);
         setEditedContributions(prev => ({ ...prev, [info.dateKey]: newCount }));
       }
     };
@@ -319,35 +325,43 @@ const Heatmap = () => {
       container.removeEventListener('click', handleLeftClick);
       container.removeEventListener('contextmenu', handleRightClick);
     };
-  }, [isEditing, editedContributions, contribMap, setEditedContributions, selectedPattern, getPatternCells]);
+  }, [isEditing, editedContributions, contribMap, setEditedContributions, selectedPattern, selectedPatternSize, getPatternCells]);
 
   useEffect(() => {
     const container = heatmapContainer.current;
-    if (!container || !isEditing) {
-      if (hoveredCellKey) setHoveredCellKey(null);
-      if (patternPreviewCells.size > 0) setPatternPreviewCells(new Set());
+    if (!container) {
       return;
     }
     const handleMouseMove = (ev: MouseEvent) => {
       const target = (ev.target as Element).closest?.('.heatmap-cell') as HTMLElement | null;
       if (target) {
         const dateKey = target.dataset.date!;
+
+        // --- NEW: Update hover details text ---
+        const editedCount = editedContributions[dateKey];
+        const originalCount = contribMap.get(dateKey) ?? 0;
+        const currentCount = editedCount !== undefined ? editedCount : originalCount;
+        const formattedDate = format(new Date(dateKey), "MMM d, yyyy");
+        setHoveredCellDetails(`${currentCount} contributions on ${formattedDate}`);
+
         if (dateKey !== hoveredCellKey) {
           setHoveredCellKey(dateKey);
-          if (selectedPattern) {
-            setPatternPreviewCells(getPatternCells(dateKey, selectedPattern));
+          if (isEditing && selectedPattern) {
+            setPatternPreviewCells(getPatternCells(dateKey, selectedPattern, selectedPatternSize));
           } else {
             if (patternPreviewCells.size > 0) setPatternPreviewCells(new Set());
           }
         }
       } else {
         if (hoveredCellKey) setHoveredCellKey(null);
-        if (patternPreviewCells.size > 0) setPatternPreviewCells(new Set());
+        if (isEditing && patternPreviewCells.size > 0) setPatternPreviewCells(new Set());
+        setHoveredCellDetails(null);
       }
     };
     const handleMouseLeave = () => {
       setHoveredCellKey(null);
-      setPatternPreviewCells(new Set());
+      if (isEditing) setPatternPreviewCells(new Set());
+      setHoveredCellDetails(null);
     };
 
     container.addEventListener('mousemove', handleMouseMove);
@@ -356,7 +370,7 @@ const Heatmap = () => {
       container.removeEventListener('mousemove', handleMouseMove);
       container.removeEventListener('mouseleave', handleMouseLeave);
     };
-  }, [isEditing, hoveredCellKey, selectedPattern, getPatternCells, patternPreviewCells.size]);
+  }, [isEditing, hoveredCellKey, selectedPattern, selectedPatternSize, getPatternCells, patternPreviewCells.size, editedContributions, contribMap]);
 
   useEffect(() => {
     const container = heatmapContainer.current;
@@ -368,14 +382,20 @@ const Heatmap = () => {
   return (
     <div className="w-full flex flex-col items-center justify-center min-w-[300px] font-sans">
       <div className="p-4 border rounded-lg w-fit max-w-full" style={{ backgroundColor: heatmapBg }}>
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex justify-between items-center mb-2">
           <div className="text-gray-300">
             {isLoading ? (
               <span>Fetching contributions...</span>
             ) : (
               <span className="font-semibold">
-                {contributions?.totalContributions || 0} contributions
-                {selectedPeriod === 'rolling' ? ' in the last year' : ` in ${selectedPeriod}`}
+                {hoveredCellDetails ? (
+                  hoveredCellDetails
+                ) : (
+                  <>
+                    {contributions?.totalContributions || 0} contributions
+                    {selectedPeriod === 'rolling' ? ' in the last year' : ` in ${selectedPeriod}`}
+                  </>
+                )}
               </span>
             )}
           </div>
@@ -397,6 +417,7 @@ const Heatmap = () => {
             </SelectContent>
           </Select>
         </div>
+
         <div className="w-full overflow-x-auto" ref={heatmapContainer}>
           <div className="inline-block">
             <div className="flex" style={{ gap: `${scaledGap}rem` }}>
@@ -423,7 +444,7 @@ const Heatmap = () => {
                   selectedYear={selectedYear}
                   hoveredCellKey={hoveredCellKey}
                   brushValue={selectedBrushValue}
-                  patternPreviewCells={patternPreviewCells} // Pass new prop
+                  patternPreviewCells={patternPreviewCells}
                 />
               </div>
             </div>
@@ -451,6 +472,8 @@ const Heatmap = () => {
         isApplying={isApplying}
         selectedPattern={selectedPattern}
         setSelectedPattern={setSelectedPattern}
+        selectedPatternSize={selectedPatternSize}
+        setSelectedPatternSize={setSelectedPatternSize}
       />
     </div>
   );

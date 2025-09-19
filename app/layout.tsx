@@ -44,7 +44,6 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-
           <ScaleProvider>
             {children}
             <Toaster />

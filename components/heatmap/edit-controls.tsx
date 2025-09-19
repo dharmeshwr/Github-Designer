@@ -1,8 +1,9 @@
+// ./edit-controls.tsx
 'use client'
-import React from "react";
+import React, { useMemo } from "react";
 import { Button } from "../ui/button";
 import { Pen, X, Check, Trash2, Loader2 } from "lucide-react";
-import { alphabetPatterns } from "./patterns"; // Import the patterns
+import { alphabetPatterns } from "./patterns";
 
 type EditControlsProps = {
   isEditing: boolean;
@@ -18,21 +19,30 @@ type EditControlsProps = {
   isApplying: boolean;
   selectedPattern: string | null;
   setSelectedPattern: (patternKey: string | null) => void;
+  selectedPatternSize: 'small' | 'large';
+  setSelectedPatternSize: (size: 'small' | 'large') => void;
 };
 
 const brushOptions = [1, 5, 10, 14];
 const patternKeys = Object.keys(alphabetPatterns);
 
-// A default 7x5 matrix with a single cell in the middle for the "Single Cell" preview
-const singleCellPattern = [
-  [0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0],
-  [0, 0, 1, 0, 0],
-  [0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0],
-];
+const singleCellPattern = {
+  small: [
+    [0, 0, 0, 0],
+    [0, 1, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ],
+  large: [
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 1, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0],
+  ],
+};
 
 const EditControls: React.FC<EditControlsProps> = ({
   isEditing,
@@ -48,10 +58,18 @@ const EditControls: React.FC<EditControlsProps> = ({
   isApplying,
   selectedPattern,
   setSelectedPattern,
+  selectedPatternSize,
+  setSelectedPatternSize,
 }) => {
-  const previewMatrix = selectedPattern
-    ? alphabetPatterns[selectedPattern]
-    : singleCellPattern;
+  const previewMatrix = useMemo(() => {
+    if (selectedPattern) {
+      return alphabetPatterns[selectedPattern]?.[selectedPatternSize] ?? singleCellPattern.large;
+    }
+    return singleCellPattern[selectedPatternSize];
+  }, [selectedPattern, selectedPatternSize]);
+
+  const previewHeight = previewMatrix.length;
+  const previewWidth = previewMatrix[0]?.length ?? 0;
 
   return (
     <div className="mt-5 w-full flex flex-col justify-center ">
@@ -75,14 +93,14 @@ const EditControls: React.FC<EditControlsProps> = ({
             <div className="flex flex-col items-center p-3 rounded-md">
               <p className="text-xs text-gray-400 mb-2 font-semibold">PREVIEW</p>
               <div className="flex gap-1">
-                {Array.from({ length: 5 }).map((_, colIndex) => (
+                {Array.from({ length: previewWidth }).map((_, colIndex) => (
                   <div key={colIndex} className="flex flex-col gap-1">
-                    {Array.from({ length: 7 }).map((_, rowIndex) => {
-                      const cellValue = previewMatrix[rowIndex][colIndex];
+                    {Array.from({ length: previewHeight }).map((_, rowIndex) => {
+                      const cellValue = previewMatrix[rowIndex]?.[colIndex] ?? 0;
                       return (
                         <div
                           key={`${rowIndex}-${colIndex}`}
-                          className="size-5 rounded-xs"
+                          className="size-4 rounded-xs"
                           style={{
                             backgroundColor: cellValue === 1
                               ? getColor(selectedBrushValue ?? 1, colors)
@@ -113,7 +131,6 @@ const EditControls: React.FC<EditControlsProps> = ({
                 </div>
               </div>
 
-              {/* Pattern Selection */}
               <div>
                 <p className="text-sm mb-3 font-semibold">2. Select Pattern</p>
                 <div className="flex gap-2 flex-wrap max-w-2xl">
@@ -135,6 +152,28 @@ const EditControls: React.FC<EditControlsProps> = ({
                       {key}
                     </Button>
                   ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm mb-3 font-semibold">3. Select Size</p>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant={selectedPatternSize === 'small' ? 'default' : 'outline'}
+                    onClick={() => setSelectedPatternSize('small')}
+                    className={`transition-transform duration-150 ${selectedPatternSize === 'small' ? 'scale-105' : ''}`}
+                  >
+                    Small
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={selectedPatternSize === 'large' ? 'default' : 'outline'}
+                    onClick={() => setSelectedPatternSize('large')}
+                    className={`transition-transform duration-150 ${selectedPatternSize === 'large' ? 'scale-105' : ''}`}
+                  >
+                    Large
+                  </Button>
                 </div>
               </div>
             </div>
