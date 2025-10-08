@@ -115,6 +115,7 @@ const EditControls: React.FC<EditControlsProps> = ({
             </div>
 
             <div className="flex flex-col gap-5 flex-grow">
+              {/*
               <div>
                 <p className="text-sm mb-3 font-semibold">1. Select Brush Strength</p>
                 <div className="flex items-center gap-3">
@@ -132,9 +133,10 @@ const EditControls: React.FC<EditControlsProps> = ({
                   ))}
                 </div>
               </div>
+              */}
 
               <div>
-                <p className="text-sm mb-3 font-semibold">2. Select Pattern</p>
+                <p className="text-sm mb-3 font-semibold">1. Select Pattern</p>
                 <div className="flex gap-2 flex-wrap max-w-2xl">
                   <Button
                     size="sm"
@@ -158,7 +160,7 @@ const EditControls: React.FC<EditControlsProps> = ({
               </div>
 
               <div>
-                <p className="text-sm mb-3 font-semibold">3. Select Size</p>
+                <p className="text-sm mb-3 font-semibold">2. Select Size</p>
                 <div className="flex gap-2">
                   <Button
                     size="sm"

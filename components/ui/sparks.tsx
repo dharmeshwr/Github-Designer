@@ -148,14 +148,15 @@ export function SparkEffect({
       ref={canvasRef}
       id={selector.replace('#', '')}
       style={{
-        position: 'fixed', // 'absolute' can sometimes cause layout shifts
+        position: 'fixed',
         width: '100%',
         height: '100%',
         top: 0,
         left: 0,
-        zIndex: -1, // Ensure it's in the background
+        zIndex: -1,
         background: 'transparent',
         pointerEvents: 'none',
+        opacity: 0.5,
       }}
     />
   );
