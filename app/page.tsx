@@ -8,14 +8,12 @@ import { ModeToggle } from "@/components/mode-toggle";
 import Precautions from "@/components/precaution";
 import SignInButton from "@/components/signin-button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SparkEffect } from "@/components/ui/sparks";
 
 export default async function Home() {
   const user = await getCurrentUser()
 
   return (
     <div className="min-h-svh relative flex flex-col font-sans">
-      <SparkEffect />
       <div className="flex justify-between p-5">
         <SignInButton isConnected={!!user} />
 
